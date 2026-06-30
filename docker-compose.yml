@@ -1,0 +1,142 @@
+services:
+  # =============================================================================================================================================================
+  # NGINX
+  # =============================================================================================================================================================
+  nginx:
+    build:
+      context: ./
+      dockerfile: ./nginx/Dockerfile
+    container_name: app-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "8080:80"
+      - "443:443"
+    volumes:
+      # Mapeia a raiz do projeto (onde o Laravel vai ficar) para /var/www
+      - ./projects:/var/www
+      - ./nginx/conf.d:/etc/nginx/conf.d
+    networks:
+      - app-network
+    depends_on:
+      - php-fpm
+  
+  # =============================================================================================================================================================
+  # PHP-FPM
+  # =============================================================================================================================================================
+  php-fpm:
+    build:
+      context: ./
+      dockerfile: ./php8fpm/Dockerfile
+    container_name: app-php-fpm
+    ports:
+      - "9000:9000"
+      - "5173:5173" # Porta do Vite - projeto myproject
+    volumes:
+      - ./projects:/var/www
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  # =============================================================================================================================================================
+  # POSTGRES SERVER
+  # Comando para fazer backup do banco: docker exec dev-postgres pg_dump -U admin -d controle_investimentos > ./backups/$(Get-Date -Format "MMddyyyy_HHmmss").sql
+  # =============================================================================================================================================================
+  postgres:
+    image: postgres:18-alpine
+    container_name: app-postgresql
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      LANG: pt_BR.UTF-8
+    ports:
+      - 5432:5432
+    healthcheck:
+      # -h: hostname (no caso é o nome do serviço); -U: usuário do banco
+      test: ["CMD", "pg_isready", "-h", "postgres", "-U", "admin"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    volumes:
+      - db_postgres_volume:/var/lib/postgresql
+      - ./pg_backups:/docker-backup-db
+    networks:
+      - app-network
+    pre_stop:
+      # Faz backup de todos os bancos criados, ignorando os bancos padrão do sistema (como postgres e template)
+      - command: 
+          - "/bin/sh"
+          - "-c"
+          - |
+            ln -sf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime
+            TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+            BACKUP_DIR="/docker-backup-db"
+            
+            # 1. Lista e faz o backup individual de cada banco de dados do usuário
+            DATABASES=$$(psql -U admin -d postgres -t -A -c "SELECT datname FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres', 'pg_database')")
+            
+            for db in $$DATABASES; do
+              echo "Fazendo backup do banco: $$db..."
+              pg_dump -U admin -d "$$db" > "$${BACKUP_DIR}/$${db}_$${TIMESTAMP}.sql"
+            done
+
+            # 2. Rotina de limpeza: Remove backups com mais de 14 dias
+            echo "Executando limpeza de backups com mais de 14 dias..."
+            find "$$BACKUP_DIR" -name "*.sql" -type f -mtime +14 -delete
+  
+  # =============================================================================================================================================================
+  # PGADMIN
+  # OBS: quando acessar o pgadmin pelo browser, o hostname é o nome do serviço do banco. Nesse caso é postgres
+  # Isso porque o pgadmin está rodando a nível de container, na mesma rede do postgres
+  # Se o pgadmin for executado fora do container, o hostname é localhost
+  # =============================================================================================================================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: app-pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@pgadmin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_LANGUAGES: "{'pt_BR': 'Portuguese (Brazilian)'}"
+    ports:
+      - 5050:80
+    healthcheck:
+      test: ["CMD", "wget", "-O", "-", "http://localhost:80/misc/ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    volumes:
+      - db_pgadmin:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-network
+  pgadmin.configurator:
+    image: dpage/pgadmin4:latest
+    volumes:
+      - db_pgadmin:/var/lib/pgadmin
+    depends_on:
+      pgadmin:
+        condition: service_healthy
+
+# =============================================================================================================================================================
+# VOLUMES
+# =============================================================================================================================================================
+volumes:
+  db_postgres_volume:
+  db_pgadmin:
+
+# =============================================================================================================================================================
+# REDE
+# =============================================================================================================================================================
+networks:
+  app-network:
+    driver: bridge

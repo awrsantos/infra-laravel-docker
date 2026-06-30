@@ -1,0 +1,13 @@
+# Pastas de dados e volumes locais do Docker
+/pg_backups/*
+!/pg_backups/.gitkeep
+
+# Projetos do Laravel (manter somente a estrutura)
+/projects/*
+!/projects/.gitkeep
+
+# Arquivos do sistema operacional e logs gerais
+.DS_Store
+.idea/
+.vscode/
+*.log
