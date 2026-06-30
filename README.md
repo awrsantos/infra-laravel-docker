@@ -109,6 +109,81 @@ javascript
 
 * * *
 
+### 📦 Passo a Passo: Importando um Projeto Já Pronto / Existente
+
+Siga este fluxo para acoplar de forma segura um projeto que veio de fora ou de outro repositório para dentro da sua infraestrutura:
+
+1.  **Mover os Arquivos:** Adicione a pasta do seu projeto pronto dentro do diretório `projects/` (ex: `projects/meu-projeto`).
+2.  **Configurar o Nginx:** Crie uma nova configuração em `./nginx/conf.d/meu-projeto.conf`, ajustando o `server_name` e o `root` (apontando para `/var/www/meu-projeto/public`).
+3.  **Reiniciar o Webserver:** Atualize o Nginx para ler o novo arquivo de configuração:
+    
+    bash
+    
+        docker compose restart nginx
+
+
+4.  **Mapear o Domínio:** Abra o arquivo `hosts` do seu sistema operacional como administrador e adicione a nova URL local (ex: `127.0.0.1 meu-projeto.local`).
+5.  **Ajustar o Vite:** Abra o arquivo `projects/meu-projeto/vite.config.js` e adicione o bloco `server` idêntico ao detalhado no Passo 6 da seção anterior.
+6.  **Configurar o Ambiente e Dependências:** Como projetos existentes vêm limpos do Git (sem dependências e sem `.env`), execute a sequência abaixo na máquina real:
+    *   **A. Criar o arquivo `.env` a partir do exemplo do projeto:**
+        
+        bash
+        
+            cp projects/meu-projeto/.env.example projects/meu-projeto/.env
+
+
+    *   **B. Instalar as dependências do ecossistema PHP (Composer):**
+        
+        bash
+        
+            docker compose exec -w /var/www/meu-projeto php-fpm composer install
+
+
+    *   **C. Gerar a chave criptográfica do Laravel:**
+        
+        bash
+        
+            docker compose exec -w /var/www/meu-projeto php-fpm php artisan key:generate
+
+
+    *   **D. Ajustar o `.env`:** Abra o novo arquivo `.env` gerado e configure o nome da aplicação, a URL local e as credenciais do PostgreSQL da stack.
+    *   **E. Corrigir permissões de escrita dentro do contêiner:**
+        
+        bash
+        
+            docker compose exec php-fpm chown -R www-data:www-data /var/www/meu-projeto/storage /var/www/meu-projeto/bootstrap/cache
+
+
+    *   **F. Instalar os pacotes de frontend do Node:**
+        
+        bash
+        
+            docker compose exec -w /var/www/meu-projeto php-fpm npm install
+
+
+    *   **G. Iniciar o Vite em segundo plano (Se o projeto estiver em desenvolvimento):**
+        
+        bash
+        
+            docker exec -d app-php-fpm sh -c "cd meu-projeto && npm run dev"
+
+
+    *   **H. Compilar os assets para Produção (Se o projeto já estiver finalizado):**
+        
+        bash
+        
+            docker compose exec -w /var/www/meu-projeto php-fpm npm run build
+
+
+    *   **I. Criar o banco de dados e rodar as Migrations/Seeds:** Utilize o comando de criação rápida via terminal se o banco ainda não existir e, em seguida, popule as tabelas:
+        
+        bash
+        
+            docker compose exec -w /var/www/meu-projeto php-fpm php artisan migrate --seed
+
+
+* * *
+
 ### 💻 Fluxo Diário de Desenvolvimento
 
 Ao iniciar o seu dia de trabalho, execute a sequência abaixo no terminal da sua máquina real para levantar o ambiente de forma produtiva (com o Vite operando em segundo plano):
